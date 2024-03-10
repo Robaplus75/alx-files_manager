@@ -1,9 +1,11 @@
 import { MongoClient } from 'mongodb';
 
 const port = process.env.DB_PORT || 27017;
+
 const host = process.env.DB_HOST || 'localhost';
 
 const url = `mongodb://${host}:${port}/`;
+
 const database = process.env.DB_DATABASE || 'files_manager';
 
 class DBClient {
