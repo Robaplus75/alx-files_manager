@@ -1,55 +1,36 @@
-import DBClient from './utils/db';
+import { Queue } from 'bull';
+import imageThumbnail from 'image-thumbnail';
+import { ObjectId } from 'mongodb';
+import { dbClient } from '../utils/db';
 
-const fs = require('fs');
-const Bull = require('bull');
-const { ObjectId } = require('mongodb');
-const imageThumbnail = require('image-thumbnail');
+// Create a queue to process file generation jobs
+const fileQueue = new Queue('file generation');
 
-const userQueue = new Bull('userQueue');
-const fileQueue = new Bull('fileQueue');
-
-const createImageThumbnail = async (path, options) => {
-  try {
-    const thumbnail = await imageThumbnail(path, options);
-    const pathNail = `${path}_${options.width}`;
-
-    await fs.writeFileSync(pathNail, thumbnail);
-  } catch (error) {
-    console.log(error);
-  }
-};
-
+// Process the queue
 fileQueue.process(async (job) => {
-  const { fileId } = job.data;
+  const { userId, fileId } = job.data;
+
   if (!fileId) {
-    throw Error('Missing fileId');
+    throw new Error('Missing fileId');
   }
-
-  const { userId } = job.data;
   if (!userId) {
-    throw Error('Missing userId');
+    throw new Error('Missing userId');
   }
 
-  const fileDocument = await DBClient.db.collection('files').findOne({ _id: ObjectId(fileId), userId: ObjectId(userId) });
-  if (!fileDocument) {
-    throw Error('File not found');
+  const file = await dbClient.client.db().collection('files').findOne({
+    _id: ObjectId(fileId),
+    userId,
+  });
+  if (!file) {
+    throw new Error('File not found');
   }
 
-  createImageThumbnail(fileDocument.localPath, { width: 500 });
-  createImageThumbnail(fileDocument.localPath, { width: 250 });
-  createImageThumbnail(fileDocument.localPath, { width: 100 });
-});
-
-userQueue.process(async (job) => {
-  const { userId } = job.data;
-  if (!userId) {
-    throw Error('Missing userId');
-  }
-
-  const userDocument = await DBClient.db.collection('users').findOne({ _id: ObjectId(userId) });
-  if (!userDocument) {
-    throw Error('User not found');
-  }
-
-  console.log(`Welcome ${userDocument.email}`);
+  // Generate thumbnails
+  const thumbnailSizes = [500, 250, 100];
+  const thumbnailPromises = thumbnailSizes.map(async (size) => {
+    const thumbnailPath = `${file.localPath}_${size}`;
+    const thumbnail = await imageThumbnail(file.localPath, { width: size });
+    await fs.promises.writeFile(thumbnailPath, thumbnail);
+  });
+  await Promise.all(thumbnailPromises);
 });
